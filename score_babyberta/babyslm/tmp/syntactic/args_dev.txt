@@ -1,0 +1,10 @@
+{
+  "input_path": "DATA/babyslm/syntactic",
+  "mode": [
+    "dev"
+  ],
+  "model": "BabyBERTa-1",
+  "task": "syntactic",
+  "out": "score_babyberta",
+  "out_file": "score_babyberta"
+}

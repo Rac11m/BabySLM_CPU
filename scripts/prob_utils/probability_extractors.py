@@ -2,6 +2,7 @@
 A large part of this code has been adapted from Tu Anh's work as part of the ZeroSpeech 2021 challenge.
 https://github.com/zerospeech/zerospeech2021_baseline
 """
+
 import argparse
 from fairseq import tasks, checkpoint_utils
 from time import time
@@ -12,12 +13,21 @@ from tqdm.auto import tqdm
 
 
 class ProbExtractor:
-    def __init__(self, model_path, dict_path, out_path, batch_size, pooling='mean', gpu=True, audio=False):
+    def __init__(
+        self,
+        model_path,
+        dict_path,
+        out_path,
+        batch_size,
+        pooling="mean",
+        gpu=True,
+        audio=False,
+    ):
         # set attributes
         self.model_path = model_path
         self.dict_path = dict_path
         if dict_path is None:
-            self.dict_path = self.model_path.parent / 'data-bin'
+            self.dict_path = self.model_path.parent / "data-bin"
         self.out_path = out_path
         self.batch_size = batch_size
         self.pooling = pooling
@@ -42,22 +52,34 @@ class ProbExtractor:
 
     def write_probabilities(self, seq_names, probabilities, out_file):
         out_file.parent.mkdir(exist_ok=True, parents=True)
-        with open(out_file, 'w') as f:
+        with open(out_file, "w") as f:
             for filename, prob in zip(seq_names, probabilities):
-                f.write(f'{filename} {prob}\n')
-        print(f'Writing pseudo-probabilities to {out_file}')
-
+                f.write(f"{filename} {prob}\n")
+        print(f"Writing pseudo-probabilities to {out_file}")
 
 
 class LstmProbExtractor(ProbExtractor):
-    def __init__(self, model_path, dict_path, out_path, batch_size, remove_word_spaces, bpe_encode=False,
-                 bos_eos=False, pooling='mean', gpu=True, audio=False):
-        super().__init__(model_path, dict_path, out_path, batch_size, pooling, gpu, audio)
+    def __init__(
+        self,
+        model_path,
+        dict_path,
+        out_path,
+        batch_size,
+        remove_word_spaces,
+        bpe_encode=False,
+        bos_eos=False,
+        pooling="mean",
+        gpu=False,
+        audio=False,
+    ):
+        super().__init__(
+            model_path, dict_path, out_path, batch_size, pooling, gpu, audio
+        )
         self.remove_word_spaces = remove_word_spaces
         self.example_input = None
         self.bpe_encode = bpe_encode
         if bpe_encode:
-            self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+            self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.bos_eos = bos_eos
         self.audio = audio
 
@@ -65,24 +87,32 @@ class LstmProbExtractor(ProbExtractor):
         # Text-specific preprocessing steps
         if not self.audio:
             if self.remove_word_spaces:
-                example = example.replace(' <SEP> ', ' ')
+                example = example.replace(" <SEP> ", " ")
             if self.bpe_encode:
-                example = ' '.join(self.tokenizer.tokenize(example))
+                example = " ".join(self.tokenizer.tokenize(example))
             if self.bos_eos:
-                example = '<BOS> ' + example + ' <EOS>'
+                example = "<BOS> " + example + " <EOS>"
         return example
 
     def load_model(self):
         if self.audio:
-            model, task = loadLSTMLMCheckpoint(str(self.model_path), str(self.dict_path))
+            model, task = loadLSTMLMCheckpoint(
+                str(self.model_path), str(self.dict_path)
+            )
         else:
             # Set up the args Namespace
-            model_args = argparse.Namespace(task='language_modeling', output_dictionary_size=-1,
-                                            data=str(self.dict_path), path=str(self.model_path))
+            model_args = argparse.Namespace(
+                task="language_modeling",
+                output_dictionary_size=-1,
+                data=str(self.dict_path),
+                path=str(self.model_path),
+            )
             # Setup task
             task = tasks.setup_task(model_args)
             # Load model
-            models, _model_args = checkpoint_utils.load_model_ensemble([model_args.path], task=task)
+            models, _model_args = checkpoint_utils.load_model_ensemble(
+                [model_args.path], task=task
+            )
             model = models[0]
 
         print("Model loaded.")
@@ -95,7 +125,9 @@ class LstmProbExtractor(ProbExtractor):
 
     def extract_batch(self, batch):
         if not self.loaded:
-            raise ValueError("You should load the model before extracting the probabilities.")
+            raise ValueError(
+                "You should load the model before extracting the probabilities."
+            )
         pad_idx = self.task.source_dictionary.pad()
 
         # Add start token
@@ -103,13 +135,15 @@ class LstmProbExtractor(ProbExtractor):
         input_lengths = []
         for sequence in batch:
             # Convert from string to list of units
-            sequence_tokens = self.task.source_dictionary.encode_line("<s> " + sequence, append_eos=True,
-                                                                      add_if_not_exist=False).long()
+            sequence_tokens = self.task.source_dictionary.encode_line(
+                "<s> " + sequence, append_eos=True, add_if_not_exist=False
+            ).long()
             input_lengths.append(len(sequence_tokens))
             input_sequences.append(sequence_tokens)
 
-        sequences_inputs = torch.nn.utils.rnn.pad_sequence(input_sequences, batch_first=False,
-                                                           padding_value=pad_idx).t()
+        sequences_inputs = torch.nn.utils.rnn.pad_sequence(
+            input_sequences, batch_first=False, padding_value=pad_idx
+        ).t()
         if self.gpu:
             sequences_inputs = sequences_inputs.cuda()
 
@@ -126,20 +160,20 @@ class LstmProbExtractor(ProbExtractor):
                 proba += score
                 if i == input_lengths[j] - 2:
                     break
-            if self.pooling == 'mean':
-                proba /= input_lengths[j]-1
+            if self.pooling == "mean":
+                proba /= input_lengths[j] - 1
             proba_list.append(proba.item())
         return proba_list
 
     def extract_all(self, data):
         if self.audio:
-            input_data = data['quantized']
+            input_data = data["quantized"]
         else:
-            input_data = data['transcription']
+            input_data = data["transcription"]
 
-        seq_names = data['filename']
+        seq_names = data["filename"]
         input_data = [self.preprocessing(t) for t in input_data]
-        print(f'Example input: {input_data[0]}')
+        print(f"Example input: {input_data[0]}")
         self.example_input = input_data[0]
         n_batches = len(seq_names) // self.batch_size
         if len(seq_names) % self.batch_size != 0:
@@ -148,14 +182,19 @@ class LstmProbExtractor(ProbExtractor):
         probabilities = []
         for i in tqdm(range(n_batches)):
             start_time_batch = time()
-            transcriptions_batch = input_data[i*self.batch_size:min(len(seq_names), (i+1)*self.batch_size)]
+            transcriptions_batch = input_data[
+                i * self.batch_size : min(len(seq_names), (i + 1) * self.batch_size)
+            ]
             proba_batch = self.extract_batch(transcriptions_batch)
             probabilities.extend(proba_batch)
-        print(f"Done computing probabilities in %.2f s." % (time()-start_time))
+        print(f"Done computing probabilities in %.2f s." % (time() - start_time))
         return seq_names, probabilities
 
     @property
     def get_example_input(self):
         if self.example_input is None:
-            raise ValueError("You should run the extract_all method before asking for an example.")
+            raise ValueError(
+                "You should run the extract_all method before asking for an example."
+            )
         return self.example_input
+

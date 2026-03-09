@@ -22,11 +22,15 @@ def load_model(model_name):
                             must belong to ['BabyBERTa-1', 'BabyBERTa-2', 'BabyBERTa-3']
     :return:                a dictionnary with keys ['tokenizer', 'model']
     """
-    assert model_name in ['BabyBERTa-1', 'BabyBERTa-2', 'BabyBERTa-3']
-    tokenizer = RobertaTokenizerFast.from_pretrained("phueb/%s" % model_name, add_prefix_space=True)
-    model = RobertaForMaskedLM.from_pretrained("phueb/%s" % model_name).cuda()
+    assert model_name in ["BabyBERTa-1", "BabyBERTa-2", "BabyBERTa-3"]
+    tokenizer = RobertaTokenizerFast.from_pretrained(
+        "phueb/%s" % model_name, add_prefix_space=True
+    )
+    # model = RobertaForMaskedLM.from_pretrained("phueb/%s" % model_name).cuda()
+    model = RobertaForMaskedLM.from_pretrained("phueb/%s" % model_name)
     model.eval()
-    return {'tokenizer': tokenizer, 'model': model}
+    return {"tokenizer": tokenizer, "model": model}
+
 
 def prob_extractor_babyberta(model, data):
     """
@@ -35,13 +39,13 @@ def prob_extractor_babyberta(model, data):
     :param data:            a pandas dataframe with columns ['real', 'fake']
     :return:                cross entropies computed by the BabyBERTa model
     """
-    seq_names = data['filename']
-    stimuli = data['transcription']
+    seq_names = data["filename"]
+    stimuli = data["transcription"]
 
     stimuli = make_sequences(stimuli, num_sentences_per_input=1)
-    stimuli = ['<s> '+s+' </s>' for s in stimuli]
-    stimuli = DataSet.for_probing(stimuli, model['tokenizer'])
-    cross_entropies = calc_cross_entropies(model['model'], stimuli)
+    stimuli = ["<s> " + s + " </s>" for s in stimuli]
+    stimuli = DataSet.for_probing(stimuli, model["tokenizer"])
+    cross_entropies = calc_cross_entropies(model["model"], stimuli)
     cross_entropies = [-c for c in cross_entropies]
 
     return seq_names, cross_entropies
@@ -56,26 +60,30 @@ def calc_cross_entropies(model, dataset):
     """
     model.eval()
     cross_entropies = []
-    loss_fct = CrossEntropyLoss(reduction='none')
+    loss_fct = CrossEntropyLoss(reduction="none")
 
     with torch.no_grad():
-
         for x, _, _ in tqdm(dataset):
             # get loss
-            output = model(**{k: v.to('cuda') for k, v in x.items()})
-            logits_3d = output['logits']
+            # output = model(**{k: v.to('cuda') for k, v in x.items()})
+            output = model(**{k: v for k, v in x.items()})
+            logits_3d = output["logits"]
             logits_for_all_words = logits_3d.permute(0, 2, 1)
-            labels = x['input_ids'].cuda()
-            loss = loss_fct(logits_for_all_words,  # need to be [batch size, vocab size, seq length]
-                            labels,  # need to be [batch size, seq length]
-                            )
+            # labels = x['input_ids'].cuda()
+            labels = x["input_ids"]
+            loss = loss_fct(
+                logits_for_all_words,  # need to be [batch size, vocab size, seq length]
+                labels,  # need to be [batch size, seq length]
+            )
 
             # compute avg cross entropy per sentence
             # to do so, we must exclude loss for padding symbols, using attention_mask
-            cross_entropies += [loss_i[np.where(row_mask)[0]].mean().item()
-                                for loss_i, row_mask in zip(loss, x['attention_mask'].numpy())]
+            cross_entropies += [
+                loss_i[np.where(row_mask)[0]].mean().item()
+                for loss_i, row_mask in zip(loss, x["attention_mask"].numpy())
+            ]
 
     if not cross_entropies:
-        raise RuntimeError(f'Did not compute cross entropies.')
+        raise RuntimeError(f"Did not compute cross entropies.")
 
     return cross_entropies
